@@ -16,6 +16,8 @@ new Vue({
             priorityOrder: 'html,md,pdf',
             // 并发请求限制
             requestLimit: 1,
+            // 同步观看进度
+            syncProgress: 'close',
             // 移动端调试
             debugMode: 'close'
         },
@@ -46,7 +48,8 @@ new Vue({
         // 屏蔽标题中的字符串
         isDialogVisible: false,
         // 全局折叠
-        globalIsExpanded: false
+        globalIsExpanded: false,
+        cloumuMenuProgress: null
     },
     watch: {
         'selectColumn.name': (n, o) => {
@@ -168,29 +171,81 @@ new Vue({
             return window.innerWidth <= 1024; // 根据实际情况设置移动端的宽度阈值
         },
         // 处理 hash 变化的方法
-        handleHashChange() {
+        async handleHashChange() {
             // 获取新的 hash 值
             const newHash = window.location.hash;
             if (newHash && decodeURIComponent(newHash).split('/').length > 1) {
                 // 保存最近一次观看的专栏的章节
                 saveCurrentProgress(newHash)
                 // 保存每个专栏最近一次观看的章节
-                let cloumuMenuProgress = this.getCloumuMenuProgress()
+                let cloumuMenuProgress = await this.getCloumuMenuProgress()
                 // 默认为未看完
                 let completed = false
                 // 根据章节索引计算是否已看完
                 if (this.currentMenu && !this.getMenuNode(1)) {
                     completed = true
                 }
-                cloumuMenuProgress[this.currentSelectColumn] = { path: newHash, completed: completed }
-                localStorage.setItem(cloumuMenuProgressKey, JSON.stringify(cloumuMenuProgress))
+                // cloumuMenuProgress[this.currentSelectColumn] = { path: newHash, completed: completed, updateTime: new Date().getTime() }
+                // this.updateCloumuMenuProgress(cloumuMenuProgress);
+                this.updateCloumuMenuProgress(this.currentSelectColumn, { path: newHash, completed: completed, updateTime: new Date().getTime() })
                 // 重新触发专栏分组
-                this.columnGroup()
+                await this.columnGroup()
                 this.loadColumByUrl()
             }
         },
-        getCloumuMenuProgress() {
-            return JSON.parse(localStorage.getItem(cloumuMenuProgressKey)) || {}
+        async getCloumuMenuProgress() {
+            if (this.cloumuMenuProgress) {
+                return this.cloumuMenuProgress
+            }
+            console.log('加载进度');
+            // 加载本地进度
+            if (!this.columnConfig.syncProgress || this.columnConfig.syncProgress == 'close') {
+                const cloumuMenuProgress = getLocalCloumuMenuProgress()
+                if (cloumuMenuProgress) {
+                    this.cloumuMenuProgress = cloumuMenuProgress
+                    return cloumuMenuProgress
+                }
+                return {}
+            }
+            // 加载远程进度
+            this.cloumuMenuProgress = await this.getRemoteCloumuMenuProgress()
+            return this.cloumuMenuProgress;
+
+        },
+        async updateCloumuMenuProgress(currentSelectColumn, currentSelectColumnProgress) {
+            // 不同步进度
+            if (this.columnConfig.syncProgress == 'close') {
+                const cloumuMenuProgress = this.getCloumuMenuProgress()
+                cloumuMenuProgress[currentSelectColumn] = currentSelectColumnProgress
+                const cloumuMenuProgressStr = JSON.stringify(cloumuMenuProgress)
+                localStorage.setItem(cloumuMenuProgressKey, cloumuMenuProgressStr)
+                this.cloumuMenuProgress = cloumuMenuProgress
+                return
+            }
+            // 同步进度
+            let cloumuMenuProgressStr = ''
+            // 判断进度是否是最新的
+            let remoteProgress = await this.getRemoteCloumuMenuProgress()
+            // 远程不存在,上传本地的
+            let remoteCurrentSelectColumn = remoteProgress[currentSelectColumn]
+            // 远程不存在 或者 远程更新时间小于当前时间 就更新远程的
+            if ((!remoteCurrentSelectColumn) || (remoteCurrentSelectColumn.updateTime < currentSelectColumnProgress.updateTime)) {
+                remoteProgress[currentSelectColumn] = currentSelectColumnProgress
+                cloumuMenuProgressStr = JSON.stringify(remoteProgress)
+                this.cloumuMenuProgress = remoteProgress
+                axios({
+                    method: 'post',
+                    url: `${this.columnConfig.columApiServer}/api/admin/meta/update`,
+                    headers: {
+                        Authorization: this.columnConfig.token
+                    },
+                    data: {
+                        "id": metaId,
+                        "path": "/alist-html-render-config",
+                        "readme": cloumuMenuProgressStr
+                    }
+                })
+            }
         },
         handleSelectOpen() {
             this.$nextTick(() => {
@@ -399,14 +454,14 @@ new Vue({
             this.currentSelectColumn = this.selectColumn.value
             this.loadMenus(this.selectColumn.value)
         },
-        loadColumn(obj) {
+        async loadColumn(obj) {
             // 专栏分组之后点击 组名也会触发，需要忽略此次选择
             if (!obj || obj instanceof Array) return
             if (this.selectColumn) {
                 this.menus = []
                 this.currentMenu = null
                 // 当前专栏最近看的章节
-                let cloumuMenuProgress = this.getCloumuMenuProgress()
+                let cloumuMenuProgress = await this.getCloumuMenuProgress()
                 const currentColumnLookedMenu = cloumuMenuProgress[this.selectColumn.value] || null
                 if (currentColumnLookedMenu) {
                     window.location.hash = currentColumnLookedMenu.path
@@ -437,7 +492,7 @@ new Vue({
                     "per_page": 0,
                     "refresh": false
                 }
-            }).then(res => {
+            }).then(async res => {
                 res.data.data.content?.sort((a, b) => naturalSortByName(a, b))
                 res.data.data.content?.forEach((obj) => {
                     const column = obj.name;
@@ -460,7 +515,7 @@ new Vue({
                     this.allColumns.push({ name: columnName.includes('专栏课-') ? columnName.substring(columnName.indexOf('专栏课-') + 4) : columnName, value: column, isEnd: end })
                 });
                 // 专栏分组
-                this.columnGroup()
+                await this.columnGroup()
                 this.loadColumByUrl();
 
             }).catch(err => {
@@ -471,8 +526,8 @@ new Vue({
                 this.openSettings()
             })
         },
-        columnGroup() {
-            const cloumuMenuProgress = this.getCloumuMenuProgress()
+        async columnGroup() {
+            const cloumuMenuProgress = await this.getCloumuMenuProgress()
             this.allColumnsGroupByViewingStatus = columnGroupBy(this.allColumns, column => {
                 const cloumuProgress = cloumuMenuProgress[column.value]
                 if (cloumuProgress) {
@@ -514,6 +569,34 @@ new Vue({
                     resolve(res.data)
                 });
             })
+        },
+        // 获取远程配置
+        async getRemoteCloumuMenuProgress() {
+            const res = await axios({
+                method: 'get',
+                url: `${this.columnConfig.columApiServer}/api/admin/meta/get?id=${metaId}`,
+                headers: {
+                    Authorization: this.columnConfig.token
+                }
+            })
+            // 存在远程配置直接返回
+            if (res.status == 200 && res.data.code != 500) {
+                return JSON.parse(res.data.data.readme)
+            }
+            // 不存在去创建
+            await axios({
+                method: 'post',
+                url: `${this.columnConfig.columApiServer}/api/admin/meta/create`,
+                headers: {
+                    Authorization: this.columnConfig.token
+                },
+                data: {
+                    "id": metaId,
+                    "path": "/alist-html-render-config",
+                    "readme": getLocalCloumuMenuProgress(false)
+                }
+            })
+            return {}
         },
         // 创建排序规则
         async createSortConfig(column, menus) {
@@ -669,7 +752,8 @@ new Vue({
 });
 
 const SUMMARY = 'SUMMARY.md'
-
+// 远程进度ID
+const metaId = 996
 const excludedExtensions = ['.mp3', '.mp4', '.m4a', 'images', 'MP3', 'videos', 'img']
 const columnViewingStatus = {
     'watching': '正在看',
@@ -952,4 +1036,12 @@ function loadScript(url, onLoadCallback, onErrorCallback, async = true) {
 
     // 将 scriptElement 添加到页面的 <head> 中
     document.head.appendChild(scriptElement);
+}
+
+function getLocalCloumuMenuProgress(isParse = false) {
+    const localCloumuMenuProgressStr = localStorage.getItem(cloumuMenuProgressKey) || {}
+    if (isParse) {
+        return JSON.parse(localCloumuMenuProgressStr);
+    }
+    return localCloumuMenuProgressStr;
 }

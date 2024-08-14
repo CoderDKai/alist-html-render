@@ -6,6 +6,8 @@ html、md、pdf预览，自动生成目录，支持移动端。
 支持`pwa`，markdown代码高亮，
 前端样式参考[mdbook](https://github.com/rust-lang/mdBook)实现
 # 更新记录
+**2024-08-14**：支持进度同步
+
 **2024-03-01**：支持多级目录
 
 **2024-02-23**：支持按照SUMMARY.md对左侧菜单排序

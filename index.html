@@ -283,6 +283,19 @@
                         <textarea v-model="columnConfig.blockStrings" rows="4" placeholder="每行写一个"></textarea>
                     </div>
                     <div class="config">
+                        <span class="config_key">同步进度：</span>
+                        <div>
+                            <input type="radio" class="debug_mode" name="syncProgress" id="enableSyncProgress" value="open"
+                                v-model="columnConfig.syncProgress"></input>
+                            <label for="enableSyncProgress">开启</label>
+                        </div>
+                        <div>
+                            <input type="radio" class="debug_mode" name="syncProgress" id="disableSyncProgress" value="close"
+                                v-model="columnConfig.syncProgress"></input>
+                            <label for="disableSyncProgress">关闭</label>
+                        </div>
+                    </div>
+                    <div class="config">
                         <span class="config_key">清除缓存</span>
                         <button @click="clearCache">清除</button>
                     </div>
@@ -293,7 +306,7 @@
                 </div>
             </div>
         </div>
-        <script src="./style/core.js?v=25"></script>
+        <script src="./style/core.js?v=26"></script>
     </div>
 </body>
 
