@@ -642,14 +642,14 @@ new Vue({
             } else {
                 if (!menuName.endsWith(prioritizeFile)) return
                 const replaceMenuName = replaceName(menuName)
-                const relativeMenuPath = encodeURIComponent(`${column}/${replaceMenuName}`)
+                const relativeMenuPath = encodeURI(`${column}/${replaceMenuName}`)
                 return Object.assign({}, menuObj, {
                     type: getNameExt(menuName),
                     menuName: replaceMenuName,
                     active: false,
                     sourceMenuName: menuName,
                     parentPath: this.columnConfig.columPath + `/${this.selectColumn.value}`,
-                    path: this.columnConfig.columPath + encodeURIComponent(`/${relativePath}`),
+                    path: this.columnConfig.columPath + encodeURI(`/${relativePath}`),
                     fileSign: obj.sign,
                     relativePath: relativeMenuPath
                 })
@@ -794,7 +794,21 @@ function getCurrentProgress() {
 }
 
 function getColumnConfig() {
-    return localStorage.getItem('columnConfig')
+    return getColumnConfigByUrl() || localStorage.getItem('columnConfig')
+}
+
+function getColumnConfigByUrl() {
+    const queryParams = {}
+    const queryString = location.search?.split('?')[1]
+    if (!queryString) {
+        return null
+    }
+    const urlParams = new URLSearchParams(queryString);
+    urlParams.forEach((value, key) => {
+            queryParams[key] = value;
+        }
+    );
+    return decodeURIComponent(atob(queryParams['config']))
 }
 
 function setColumnConfig(config) {
@@ -1044,4 +1058,8 @@ function getLocalCloumuMenuProgress(isParse = false) {
         return JSON.parse(localCloumuMenuProgressStr);
     }
     return localCloumuMenuProgressStr;
+}
+
+function encodeURI(url) {
+    return url.split("/").map(n => encodeURIComponent(n)).join("/")
 }
